@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.0.1] – 2026-09-20
+
+### Behoben
+- **Border-Linien verschwanden oder fehlten**, vor allem in Treppengängen, Schächten und unter Überhängen. Die Geometrie wurde nur relativ zur eigenen Höhe berechnet. Jetzt werden die tatsächlichen Lufträume jeder Kante über die ganze Höhe um den Spieler ausgewertet: jede Bodenlinie, Deckenlinie und jeder Geländeabsatz wird gezeichnet, egal ob vor, hinter, über oder unter dem Spieler.
+- **Doppelte und gestrichelte senkrechte Linien** an Ecken: Pro Ecke gibt es nur noch einen Pfosten, den sich alle angrenzenden Kanten teilen, überlappende Stücke werden zusammengefasst.
+- **Unsaubere Linien aus der Nähe**: Linien sind jetzt dünne Vierkant-Stäbe exakt mittig auf der Kante statt zwei versetzter Streifen.
+- **Glow fehlte an manchen Kanten**: Jede Bodenlinie und jeder Absatz trägt jetzt seinen eigenen Glow.
+
+### Geändert
+- **Sofortige Aktualisierung**: Beim Abbauen oder Platzieren eines Blocks wird die Border im selben Frame neu berechnet statt mit bis zu einer Sekunde Verzögerung.
+- Die flächige Rotfärbung ganzer Wände entfällt, es bleibt der weiche Glow über den Linien.
+- Sichtweite der Border von 28 auf 40 Blöcke erhöht.
+- Testschalter `-Dgridlock.disable=true` legt den Mod komplett still (zum Prüfen der Server-Darstellung).
+
 ## [1.0.0] – 2026-09-20
 
 Erste Version für Minecraft **26.3** (Fabric), passend zum GridLock-Plugin ab **1.7.0** (Protokoll 1).

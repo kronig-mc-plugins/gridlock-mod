@@ -87,6 +87,11 @@ public final class FieldState {
 		return COLUMNS.size();
 	}
 
+	/** The world around the border changed (a block was broken or placed): redraw. */
+	public static void markDirty() {
+		revision++;
+	}
+
 	/** Changes whenever anything that affects the geometry changed. */
 	public static int revision() {
 		return revision;

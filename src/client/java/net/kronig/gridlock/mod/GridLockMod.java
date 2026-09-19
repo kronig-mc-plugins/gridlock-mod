@@ -19,6 +19,10 @@ public final class GridLockMod implements ClientModInitializer {
 
 	@Override
 	public void onInitializeClient() {
+		if (Boolean.getBoolean("gridlock.disable")) {
+			LOGGER.info("GridLock-Mod per -Dgridlock.disable=true abgeschaltet");
+			return;
+		}
 		PayloadTypeRegistry.serverboundPlay().register(HelloPayload.TYPE, HelloPayload.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(FieldPayload.TYPE, FieldPayload.CODEC);
 

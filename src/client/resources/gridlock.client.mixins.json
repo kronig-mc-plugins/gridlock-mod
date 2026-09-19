@@ -3,6 +3,7 @@
 	"package": "net.kronig.gridlock.mod.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"client": [
+		"ClientLevelMixin",
 		"EntityCollideMixin"
 	],
 	"injectors": {
