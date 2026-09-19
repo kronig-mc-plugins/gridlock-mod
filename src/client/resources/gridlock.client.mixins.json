@@ -1,0 +1,11 @@
+{
+	"required": true,
+	"package": "net.kronig.gridlock.mod.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"EntityCollideMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}
