@@ -2,7 +2,7 @@
 
 <h1 align="center">GridLock Mod</h1>
 
-Optionaler **Fabric-Client-Mod** für das [GridLock-Plugin](../gridlock-plugin) (Minecraft **26.3**).
+Optionaler **Fabric-Client-Mod** für das [GridLock-Plugin](https://github.com/kronig-mc-plugins/gridlock-plugin) (Minecraft **26.3**).
 
 ## Was er macht
 

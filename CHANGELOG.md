@@ -9,3 +9,4 @@ Erste Version für Minecraft **26.3** (Fabric), passend zum GridLock-Plugin ab *
 - Border wird vom Client gezeichnet: dünne Leuchtlinien am Geländeprofil, weicher Schimmer, Wand bis zur Oberfläche, stufenloser Farbwechsel beim Erweitern und grüner Blitz beim neuen Block.
 - Anmeldung beim Plugin mit Versionsprüfung. Bei einem Fehler meldet sich der Mod ab, und der Server zeigt wieder die normale Border.
 - Tut nichts auf Servern ohne GridLock-Plugin.
+- Repository: [`kronig-mc-plugins/gridlock-mod`](https://github.com/kronig-mc-plugins/gridlock-mod), Plugin daneben in `gridlock-plugin`.
