@@ -8,8 +8,9 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -20,10 +21,13 @@ import java.util.Map;
  * Draws the field border on the client.
  *
  * <p>For every boundary edge the renderer looks at the real air spaces of the field column next to it (tunnel,
- * staircase, shaft, cave, surface) over the whole height around the player, not just at the player's own level.
- * Each air space gets a thin line along its floor, one along its ceiling if it has one, and lines on ledges of
- * the terrain outside. Every one of those lines carries a soft glow that fades out upwards. Corners get exactly
- * one vertical post, shared by all edges meeting there, with overlapping ranges merged.
+ * staircase, shaft, cave, surface) over the whole height around the player. The result is one continuous frame
+ * per walkable level: a line along the floor of the field at the boundary, with vertical pieces where the floor
+ * steps up or down. Heights come from the real collision shapes, so slabs, farmland, paths and the like are
+ * followed where they actually end.
+ *
+ * <p>Lines are real lines with a fixed width in pixels (like the block selection outline), so they stay thin no
+ * matter how close the camera gets. A soft translucent glow fades out above every horizontal line.
  */
 public final class BorderRenderer {
 
@@ -32,18 +36,22 @@ public final class BorderRenderer {
 	private static final int SCAN = 40;
 	private static final int[][] DIRECTIONS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
 
-	/** One quad: 4 corners (x, y, z) and an alpha per corner. */
+	/** A glow quad: 4 corners (x, y, z) and an alpha per corner. */
 	private record Quad(double[] xyz, float[] alpha) {
 	}
 
-	/** An air space in a column: from {@code bottom} (first free block) to {@code top} (exclusive). */
-	private record Gap(int bottom, int top, boolean capped) {
+	private record Line(double x1, double y1, double z1, double x2, double y2, double z2) {
+	}
+
+	/** An air space in a column: from the top of its floor to the underside of its ceiling. */
+	private record Gap(double bottom, double top, boolean capped) {
 	}
 
 	private final List<Quad> quads = new ArrayList<>();
+	private final List<Line> lines = new ArrayList<>();
 	private final Map<Long, List<Gap>> gapCache = new HashMap<>();
-	/** Vertex (packed x,z) -> vertical post ranges {from, to}. */
-	private final Map<Long, List<int[]>> posts = new HashMap<>();
+	/** Corner (packed x,z) -> the air spaces of every boundary edge ending there. */
+	private final Map<Long, List<List<Gap>>> corners = new HashMap<>();
 	private int builtRevision = -1;
 	private long builtAt;
 	private BlockPos builtFor = BlockPos.ZERO;
@@ -56,7 +64,7 @@ public final class BorderRenderer {
 			return;
 		}
 		rebuildIfNeeded(player, level);
-		if (quads.isEmpty()) {
+		if (lines.isEmpty()) {
 			return;
 		}
 		Vec3 camera = context.levelState().cameraRenderState.pos;
@@ -64,23 +72,51 @@ public final class BorderRenderer {
 		int red = (color >> 16) & 255;
 		int green = (color >> 8) & 255;
 		int blue = color & 255;
+		// The server setting is in 1/100 blocks (for its entity rods); as a pixel width 3 means 3 px.
+		float pixels = Math.max(1f, FieldState.lineWidth() * 100f);
 		PoseStack poseStack = context.poseStack();
-		context.submitNodeCollector().submitCustomGeometry(poseStack, RenderTypes.debugQuads(), (pose, buffer) -> {
-			for (Quad quad : quads) {
-				for (int corner = 0; corner < 4; corner++) {
-					vertex(buffer, pose, quad, corner, camera, red, green, blue);
+
+		if (!quads.isEmpty()) {
+			context.submitNodeCollector().submitCustomGeometry(poseStack, RenderTypes.debugQuads(), (pose, buffer) -> {
+				for (Quad quad : quads) {
+					for (int corner = 0; corner < 4; corner++) {
+						float x = (float) (quad.xyz()[corner * 3] - camera.x);
+						float y = (float) (quad.xyz()[corner * 3 + 1] - camera.y);
+						float z = (float) (quad.xyz()[corner * 3 + 2] - camera.z);
+						buffer.addVertex(pose, x, y, z).setColor(red, green, blue, Math.round(quad.alpha()[corner] * 255f));
+					}
 				}
+			});
+		}
+		// Depth bias keeps the lines from flickering against the block edges they lie on.
+		context.submitNodeCollector().submitCustomGeometry(poseStack, RenderTypes.linesDepthBias(), (pose, buffer) -> {
+			for (Line line : lines) {
+				// Subtract the camera in double precision, far from the origin floats are too coarse.
+				float x1 = (float) (line.x1() - camera.x);
+				float y1 = (float) (line.y1() - camera.y);
+				float z1 = (float) (line.z1() - camera.z);
+				float x2 = (float) (line.x2() - camera.x);
+				float y2 = (float) (line.y2() - camera.y);
+				float z2 = (float) (line.z2() - camera.z);
+				float nx = x2 - x1;
+				float ny = y2 - y1;
+				float nz = z2 - z1;
+				float length = (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
+				if (length < 1.0E-6f) {
+					continue;
+				}
+				nx /= length;
+				ny /= length;
+				nz /= length;
+				lineVertex(buffer, pose, x1, y1, z1, nx, ny, nz, red, green, blue, pixels);
+				lineVertex(buffer, pose, x2, y2, z2, nx, ny, nz, red, green, blue, pixels);
 			}
 		});
 	}
 
-	private static void vertex(VertexConsumer buffer, PoseStack.Pose pose, Quad quad, int corner, Vec3 camera,
-							   int red, int green, int blue) {
-		// Subtract the camera in double precision, far from the origin floats are too coarse.
-		float x = (float) (quad.xyz()[corner * 3] - camera.x);
-		float y = (float) (quad.xyz()[corner * 3 + 1] - camera.y);
-		float z = (float) (quad.xyz()[corner * 3 + 2] - camera.z);
-		buffer.addVertex(pose, x, y, z).setColor(red, green, blue, Math.round(quad.alpha()[corner] * 255f));
+	private static void lineVertex(VertexConsumer buffer, PoseStack.Pose pose, float x, float y, float z,
+								   float nx, float ny, float nz, int red, int green, int blue, float pixels) {
+		buffer.addVertex(pose, x, y, z).setColor(red, green, blue, 255).setNormal(pose, nx, ny, nz).setLineWidth(pixels);
 	}
 
 	// ------------------------------------------------------------------ geometry
@@ -96,7 +132,8 @@ public final class BorderRenderer {
 		builtFor = at;
 		builtAt = now;
 		quads.clear();
-		posts.clear();
+		lines.clear();
+		corners.clear();
 		gapCache.clear();
 
 		for (int x = at.getX() - RADIUS; x <= at.getX() + RADIUS; x++) {
@@ -111,64 +148,60 @@ public final class BorderRenderer {
 				}
 			}
 		}
-		double h = FieldState.lineWidth() / 2.0;
-		posts.forEach((vertex, ranges) -> {
-			int vx = (int) (vertex >> 32);
-			int vz = (int) (long) vertex;
-			for (int[] range : merge(ranges)) {
-				box(vx - h, range[0] - h, vz - h, vx + h, range[1] + h, vz + h);
-			}
-		});
-		GridLockMod.LOGGER.debug("Border-Geometrie: {} Quads um {}", quads.size(), at.toShortString());
+		connectCorners();
+		GridLockMod.LOGGER.debug("Border-Geometrie: {} Linien, {} Glow-Quads um {}", lines.size(), quads.size(),
+				at.toShortString());
 	}
 
+	/**
+	 * One continuous frame: along every boundary edge a line on the floor of each air space of the field column.
+	 * Where the floor changes height between neighbouring edges, a vertical piece at the shared corner joins the
+	 * two, so the frame climbs steps instead of outlining single blocks. Nothing is drawn on blocks outside.
+	 */
 	private void addEdge(ClientLevel level, int x, int z, int[] dir, int refY) {
 		boolean alongZ = dir[0] != 0;
 		int plane = alongZ ? (dir[0] > 0 ? x + 1 : x) : (dir[1] > 0 ? z + 1 : z);
 		int from = alongZ ? z : x;
-		int outerX = x + dir[0];
-		int outerZ = z + dir[1];
 		// A hair inside the field, so the glow never z-fights with block faces lying in the plane.
 		double glowPlane = plane - (dir[0] + dir[1]) * 0.004;
-		int outerSurface = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, outerX, outerZ);
-		BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-
-		for (Gap gap : gaps(level, x, z, refY)) {
-			line(alongZ, plane, glowPlane, from, gap.bottom(), gap.top());
-			if (gap.capped()) {
-				rod(alongZ, plane, from, from + 1, gap.top());
-			}
-			// Ledges of the terrain outside: solid below, free above, within this air space.
-			int ledgeLimit = Math.min(gap.top(), gap.bottom() + SCAN);
-			for (int y = gap.bottom() + 1; y < ledgeLimit; y++) {
-				if (solid(level, pos.set(outerX, y - 1, outerZ)) && !solid(level, pos.set(outerX, y, outerZ))) {
-					line(alongZ, plane, glowPlane, from, y, gap.top());
-				}
-			}
-			// Posts at both ends, unless the outline simply continues there with the same air space.
-			int postTop = gap.capped() ? gap.top() : Math.max(gap.bottom(), Math.min(gap.top(), outerSurface));
-			if (postTop <= gap.bottom()) {
-				continue;
-			}
-			for (int end = 0; end <= 1; end++) {
-				int step = end == 0 ? -1 : 1;
-				int nx = alongZ ? x : x + step;
-				int nz = alongZ ? z + step : z;
-				boolean continues = FieldState.isAllowed(nx, nz) && !FieldState.isAllowed(nx + dir[0], nz + dir[1])
-						&& gaps(level, nx, nz, refY).contains(gap);
-				if (continues) {
-					continue;
-				}
-				int along = from + end;
-				long vertex = FieldState.pack(alongZ ? plane : along, alongZ ? along : plane);
-				posts.computeIfAbsent(vertex, key -> new ArrayList<>()).add(new int[]{gap.bottom(), postTop});
-			}
+		List<Gap> gaps = gaps(level, x, z, refY);
+		for (Gap gap : gaps) {
+			horizontal(alongZ, plane, glowPlane, from, gap.bottom(), gap.top());
+		}
+		for (int end = 0; end <= 1; end++) {
+			int along = from + end;
+			long vertex = FieldState.pack(alongZ ? plane : along, alongZ ? along : plane);
+			corners.computeIfAbsent(vertex, key -> new ArrayList<>()).add(gaps);
 		}
 	}
 
-	/** A crisp line at height {@code y} plus its glow, which fades out upwards but never leaves the air space. */
-	private void line(boolean alongZ, int plane, double glowPlane, int from, int y, int ceiling) {
-		rod(alongZ, plane, from, from + 1, y);
+	/** Joins the floor lines of different edges meeting at a corner, wherever their air spaces touch. */
+	private void connectCorners() {
+		corners.forEach((vertex, edges) -> {
+			List<double[]> ranges = new ArrayList<>();
+			for (int i = 0; i < edges.size(); i++) {
+				for (int j = i + 1; j < edges.size(); j++) {
+					for (Gap a : edges.get(i)) {
+						for (Gap b : edges.get(j)) {
+							boolean touching = a.bottom() < b.top() && b.bottom() < a.top();
+							if (touching && Math.abs(a.bottom() - b.bottom()) > 1.0E-6) {
+								ranges.add(new double[]{Math.min(a.bottom(), b.bottom()), Math.max(a.bottom(), b.bottom())});
+							}
+						}
+					}
+				}
+			}
+			int vx = (int) (vertex >> 32);
+			int vz = (int) (long) vertex;
+			for (double[] range : merge(ranges)) {
+				lines.add(new Line(vx, range[0], vz, vx, range[1], vz));
+			}
+		});
+	}
+
+	/** A horizontal line plus its glow, which fades out upwards but never leaves the air space. */
+	private void horizontal(boolean alongZ, int plane, double glowPlane, int from, double y, double ceiling) {
+		edgeLine(alongZ, plane, from, y);
 		float strength = FieldState.glowStrength();
 		float glowHeight = FieldState.glowHeight();
 		if (strength <= 0f || glowHeight <= 0f) {
@@ -179,11 +212,20 @@ public final class BorderRenderer {
 			return;
 		}
 		// Cut off by a ceiling: end with the alpha the fade has reached there instead of jumping to zero.
-		float alphaTop = (float) (strength * (1.0 - (top - y) / glowHeight));
-		wall(alongZ, glowPlane, from, from + 1, y, top, strength, Math.max(0f, alphaTop));
+		float alphaTop = (float) Math.max(0.0, strength * (1.0 - (top - y) / glowHeight));
+		double[] xyz = alongZ
+				? new double[]{glowPlane, y, from, glowPlane, y, from + 1, glowPlane, top, from + 1, glowPlane, top, from}
+				: new double[]{from, y, glowPlane, from + 1, y, glowPlane, from + 1, top, glowPlane, from, top, glowPlane};
+		quads.add(new Quad(xyz, new float[]{strength, strength, alphaTop, alphaTop}));
 	}
 
-	/** All air spaces of a column within the scan range around the player. */
+	private void edgeLine(boolean alongZ, int plane, int from, double y) {
+		lines.add(alongZ
+				? new Line(plane, y, from, plane, y, from + 1)
+				: new Line(from, y, plane, from + 1, y, plane));
+	}
+
+	/** All air spaces of a column within the scan range around the player, with real floor and ceiling heights. */
 	private List<Gap> gaps(ClientLevel level, int x, int z, int refY) {
 		return gapCache.computeIfAbsent(FieldState.pack(x, z), key -> {
 			List<Gap> gaps = new ArrayList<>();
@@ -192,73 +234,64 @@ public final class BorderRenderer {
 			BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
 			int y = min;
 			// Start on solid ground: an air space cut off by the lower scan limit has no floor to draw.
-			while (y <= max && !solid(level, pos.set(x, y, z))) {
+			while (y <= max && Double.isNaN(topOf(level, pos.set(x, y, z)))) {
 				y++;
 			}
 			while (y <= max) {
-				while (y <= max && solid(level, pos.set(x, y, z))) {
+				double floor = Double.NaN;
+				while (y <= max) {
+					double top = topOf(level, pos.set(x, y, z));
+					if (Double.isNaN(top)) {
+						break;
+					}
+					floor = top;
 					y++;
 				}
-				if (y > max) {
+				if (y > max || Double.isNaN(floor)) {
 					break;
 				}
-				int bottom = y;
-				while (y <= max && !solid(level, pos.set(x, y, z))) {
+				double ceiling = Double.NaN;
+				while (y <= max) {
+					ceiling = bottomOf(level, pos.set(x, y, z));
+					if (!Double.isNaN(ceiling)) {
+						break;
+					}
 					y++;
 				}
-				gaps.add(new Gap(bottom, y, y <= max));
+				boolean capped = !Double.isNaN(ceiling);
+				double top = capped ? ceiling : max + 1;
+				if (top - floor > 1.0E-6) {
+					gaps.add(new Gap(floor, top, capped));
+				}
 			}
 			return gaps;
 		});
 	}
 
-	private static boolean solid(ClientLevel level, BlockPos pos) {
-		return !level.getBlockState(pos).getCollisionShape(level, pos).isEmpty();
+	/** World Y of the top of the collision shape at {@code pos}, NaN if nothing collides there. */
+	private static double topOf(ClientLevel level, BlockPos pos) {
+		VoxelShape shape = level.getBlockState(pos).getCollisionShape(level, pos);
+		return shape.isEmpty() ? Double.NaN : pos.getY() + shape.max(Direction.Axis.Y);
 	}
 
-	/** Merges overlapping or touching ranges, so a post is one clean piece instead of stacked duplicates. */
-	private static List<int[]> merge(List<int[]> ranges) {
-		ranges.sort((a, b) -> Integer.compare(a[0], b[0]));
-		List<int[]> merged = new ArrayList<>();
-		for (int[] range : ranges) {
-			if (!merged.isEmpty() && range[0] <= merged.get(merged.size() - 1)[1]) {
-				int[] last = merged.get(merged.size() - 1);
+	/** World Y of the underside of the collision shape at {@code pos}, NaN if nothing collides there. */
+	private static double bottomOf(ClientLevel level, BlockPos pos) {
+		VoxelShape shape = level.getBlockState(pos).getCollisionShape(level, pos);
+		return shape.isEmpty() ? Double.NaN : pos.getY() + shape.min(Direction.Axis.Y);
+	}
+
+	/** Merges overlapping or touching ranges, so a corner line is one clean piece instead of stacked duplicates. */
+	private static List<double[]> merge(List<double[]> ranges) {
+		ranges.sort((a, b) -> Double.compare(a[0], b[0]));
+		List<double[]> merged = new ArrayList<>();
+		for (double[] range : ranges) {
+			if (!merged.isEmpty() && range[0] <= merged.get(merged.size() - 1)[1] + 1.0E-6) {
+				double[] last = merged.get(merged.size() - 1);
 				last[1] = Math.max(last[1], range[1]);
 			} else {
-				merged.add(new int[]{range[0], range[1]});
+				merged.add(new double[]{range[0], range[1]});
 			}
 		}
 		return merged;
-	}
-
-	/** Horizontal rod along an edge at height {@code y}, centred exactly on the boundary plane. */
-	private void rod(boolean alongZ, double plane, double from, double to, double y) {
-		double h = FieldState.lineWidth() / 2.0;
-		// Slightly longer than the edge, so rods of neighbouring edges and the posts close up.
-		if (alongZ) {
-			box(plane - h, y - h, from - h, plane + h, y + h, to + h);
-		} else {
-			box(from - h, y - h, plane - h, to + h, y + h, plane + h);
-		}
-	}
-
-	/** Opaque box: all six faces (the render type does not cull). */
-	private void box(double x0, double y0, double z0, double x1, double y1, double z1) {
-		float[] opaque = {1f, 1f, 1f, 1f};
-		quads.add(new Quad(new double[]{x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1}, opaque));
-		quads.add(new Quad(new double[]{x0, y1, z0, x1, y1, z0, x1, y1, z1, x0, y1, z1}, opaque));
-		quads.add(new Quad(new double[]{x0, y0, z0, x0, y1, z0, x0, y1, z1, x0, y0, z1}, opaque));
-		quads.add(new Quad(new double[]{x1, y0, z0, x1, y1, z0, x1, y1, z1, x1, y0, z1}, opaque));
-		quads.add(new Quad(new double[]{x0, y0, z0, x1, y0, z0, x1, y1, z0, x0, y1, z0}, opaque));
-		quads.add(new Quad(new double[]{x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1}, opaque));
-	}
-
-	/** Vertical quad on the boundary plane, alpha fading from bottom to top. */
-	private void wall(boolean alongZ, double plane, double from, double to, double bottom, double top,
-					  float alphaBottom, float alphaTop) {
-		double[] xyz = alongZ
-				? new double[]{plane, bottom, from, plane, bottom, to, plane, top, to, plane, top, from}
-				: new double[]{from, bottom, plane, to, bottom, plane, to, top, plane, from, top, plane};
-		quads.add(new Quad(xyz, new float[]{alphaBottom, alphaBottom, alphaTop, alphaTop}));
 	}
 }

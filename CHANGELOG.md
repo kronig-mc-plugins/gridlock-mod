@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2] – 2026-09-20
+
+### Geändert
+- **Echte Linien mit fester Pixelbreite** (wie die Umrandung beim Anvisieren eines Blocks) statt 3D-Stäben. Die Linien bleiben dünn und scharf, egal wie nah die Kamera ist. Vorher wurden sie direkt vor der Kamera zu fetten roten Balken. Die Server-Einstellung `border.line-width` bedeutet im Mod jetzt Pixel (3 = 3 px).
+- **Ein einziger durchgehender Rahmen statt vieler Einzelrahmen.** Linie am Boden des Feldes entlang der Grenze, an Stufen geht sie senkrecht hoch oder runter und läuft weiter. Auf Blöcken außerhalb wird nichts mehr gezeichnet, Decken- und Absatzlinien entfallen.
+- **Echte Blockhöhen:** Slabs, Ackerboden, Trampelpfade und ähnliche Blöcke werden dort umrandet, wo sie wirklich enden.
+
 ## [1.0.1] – 2026-09-20
 
 ### Behoben
