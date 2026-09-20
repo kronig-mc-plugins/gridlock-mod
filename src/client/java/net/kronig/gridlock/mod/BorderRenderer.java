@@ -9,6 +9,7 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
@@ -22,12 +23,14 @@ import java.util.Map;
  *
  * <p>For every boundary edge the renderer looks at the real air spaces of the field column next to it (tunnel,
  * staircase, shaft, cave, surface) over the whole height around the player. The result is one continuous frame
- * per walkable level: a line along the floor of the field at the boundary, with vertical pieces where the floor
- * steps up or down. Heights come from the real collision shapes, so slabs, farmland, paths and the like are
+ * per walkable level: a line along the boundary on the higher of the two sides (the floor of the field, or the
+ * top of the blocks standing right outside), with vertical pieces where that height steps up or down. Heights come from the real collision shapes, so slabs, farmland, paths and the like are
  * followed where they actually end.
  *
  * <p>Lines are real lines with a fixed width in pixels (like the block selection outline), so they stay thin no
- * matter how close the camera gets. A soft translucent glow fades out above every horizontal line.
+ * matter how close the camera gets. A soft glow fades out above every floor line, and a much fainter curtain fills
+ * the whole height of the air space (up to the terrain surface under open sky), so the border stays readable on
+ * tall staircases and in shafts.
  */
 public final class BorderRenderer {
 
@@ -35,6 +38,8 @@ public final class BorderRenderer {
 	/** Blocks scanned below and above the player for air spaces. */
 	private static final int SCAN = 40;
 	private static final int[][] DIRECTIONS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+	/** Strength of the full-height curtain relative to the floor glow. */
+	private static final float CURTAIN_SHARE = 0.45f;
 
 	/** A glow quad: 4 corners (x, y, z) and an alpha per corner. */
 	private record Quad(double[] xyz, float[] alpha) {
@@ -47,11 +52,15 @@ public final class BorderRenderer {
 	private record Gap(double bottom, double top, boolean capped) {
 	}
 
+	/** Where the frame line of one edge runs within an air space. */
+	private record Level(Gap gap, double y) {
+	}
+
 	private final List<Quad> quads = new ArrayList<>();
 	private final List<Line> lines = new ArrayList<>();
 	private final Map<Long, List<Gap>> gapCache = new HashMap<>();
-	/** Corner (packed x,z) -> the air spaces of every boundary edge ending there. */
-	private final Map<Long, List<List<Gap>>> corners = new HashMap<>();
+	/** Corner (packed x,z) -> the line levels of every boundary edge ending there. */
+	private final Map<Long, List<List<Level>>> corners = new HashMap<>();
 	private int builtRevision = -1;
 	private long builtAt;
 	private BlockPos builtFor = BlockPos.ZERO;
@@ -154,9 +163,9 @@ public final class BorderRenderer {
 	}
 
 	/**
-	 * One continuous frame: along every boundary edge a line on the floor of each air space of the field column.
-	 * Where the floor changes height between neighbouring edges, a vertical piece at the shared corner joins the
-	 * two, so the frame climbs steps instead of outlining single blocks. Nothing is drawn on blocks outside.
+	 * One continuous frame: along every boundary edge one line per air space of the field column. Where its height
+	 * changes between neighbouring edges, a vertical piece at the shared corner joins the two, so the frame climbs
+	 * steps instead of outlining single blocks.
 	 */
 	private void addEdge(ClientLevel level, int x, int z, int[] dir, int refY) {
 		boolean alongZ = dir[0] != 0;
@@ -165,27 +174,60 @@ public final class BorderRenderer {
 		// A hair inside the field, so the glow never z-fights with block faces lying in the plane.
 		double glowPlane = plane - (dir[0] + dir[1]) * 0.004;
 		List<Gap> gaps = gaps(level, x, z, refY);
+		// Under open sky the curtain ends at the terrain surface on either side of the boundary.
+		double surface = Math.max(
+				level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z),
+				level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x + dir[0], z + dir[1]));
+		List<Level> levels = new ArrayList<>(gaps.size());
 		for (Gap gap : gaps) {
-			horizontal(alongZ, plane, glowPlane, from, gap.bottom(), gap.top());
+			double y = lineHeight(level, x + dir[0], z + dir[1], gap);
+			levels.add(new Level(gap, y));
+			horizontal(alongZ, plane, glowPlane, from, y, gap.top());
+			curtain(alongZ, glowPlane, from, gap, surface);
 		}
 		for (int end = 0; end <= 1; end++) {
 			int along = from + end;
 			long vertex = FieldState.pack(alongZ ? plane : along, alongZ ? along : plane);
-			corners.computeIfAbsent(vertex, key -> new ArrayList<>()).add(gaps);
+			corners.computeIfAbsent(vertex, key -> new ArrayList<>()).add(levels);
 		}
 	}
 
-	/** Joins the floor lines of different edges meeting at a corner, wherever their air spaces touch. */
+	/**
+	 * The frame runs along the higher side of the boundary: the floor of the field, or the top of the stack of
+	 * blocks standing right outside it. A wall that fills the whole air space (a tunnel) has no top to run along,
+	 * so the line stays on the floor there.
+	 */
+	private static double lineHeight(ClientLevel level, int outerX, int outerZ, Gap gap) {
+		BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+		double height = gap.bottom();
+		int firstY = (int) Math.floor(gap.bottom() - 1.0E-6);
+		for (int y = firstY; y <= firstY + SCAN; y++) {
+			double bottom = bottomOf(level, pos.set(outerX, y, outerZ));
+			if (Double.isNaN(bottom)) {
+				if (y >= (int) Math.floor(height)) {
+					break; // free above the stack
+				}
+				continue; // still below the floor of the field
+			}
+			if (bottom > height + 1.0E-6) {
+				break; // something floating above, not part of the stack
+			}
+			height = Math.max(height, topOf(level, pos));
+		}
+		return height >= gap.top() - 1.0E-6 ? gap.bottom() : height;
+	}
+
+	/** Joins the lines of different edges meeting at a corner, wherever their air spaces touch. */
 	private void connectCorners() {
 		corners.forEach((vertex, edges) -> {
 			List<double[]> ranges = new ArrayList<>();
 			for (int i = 0; i < edges.size(); i++) {
 				for (int j = i + 1; j < edges.size(); j++) {
-					for (Gap a : edges.get(i)) {
-						for (Gap b : edges.get(j)) {
-							boolean touching = a.bottom() < b.top() && b.bottom() < a.top();
-							if (touching && Math.abs(a.bottom() - b.bottom()) > 1.0E-6) {
-								ranges.add(new double[]{Math.min(a.bottom(), b.bottom()), Math.max(a.bottom(), b.bottom())});
+					for (Level a : edges.get(i)) {
+						for (Level b : edges.get(j)) {
+							boolean touching = a.gap().bottom() < b.gap().top() && b.gap().bottom() < a.gap().top();
+							if (touching && Math.abs(a.y() - b.y()) > 1.0E-6) {
+								ranges.add(new double[]{Math.min(a.y(), b.y()), Math.max(a.y(), b.y())});
 							}
 						}
 					}
@@ -217,6 +259,36 @@ public final class BorderRenderer {
 				? new double[]{glowPlane, y, from, glowPlane, y, from + 1, glowPlane, top, from + 1, glowPlane, top, from}
 				: new double[]{from, y, glowPlane, from + 1, y, glowPlane, from + 1, top, glowPlane, from, top, glowPlane};
 		quads.add(new Quad(xyz, new float[]{strength, strength, alphaTop, alphaTop}));
+	}
+
+	/**
+	 * Faint curtain over the whole height of an air space, so the border stays visible between the floor glow and
+	 * whatever is above (a tall staircase, a shaft). Much weaker than the floor glow. Under open sky it reaches the
+	 * terrain surface and fades out above it instead of ending in a hard edge.
+	 */
+	private void curtain(boolean alongZ, double glowPlane, int from, Gap gap, double surface) {
+		float strength = FieldState.glowStrength() * CURTAIN_SHARE;
+		if (strength <= 0f) {
+			return;
+		}
+		double top = gap.capped() ? gap.top() : Math.min(gap.top(), Math.max(gap.bottom(), surface));
+		if (top > gap.bottom()) {
+			glowQuad(alongZ, glowPlane, from, gap.bottom(), top, strength, strength);
+		}
+		if (!gap.capped()) {
+			double fadeTop = Math.min(gap.top(), top + Math.max(1.0, FieldState.glowHeight()));
+			if (fadeTop > top) {
+				glowQuad(alongZ, glowPlane, from, top, fadeTop, strength, 0f);
+			}
+		}
+	}
+
+	private void glowQuad(boolean alongZ, double glowPlane, int from, double bottom, double top,
+						  float alphaBottom, float alphaTop) {
+		double[] xyz = alongZ
+				? new double[]{glowPlane, bottom, from, glowPlane, bottom, from + 1, glowPlane, top, from + 1, glowPlane, top, from}
+				: new double[]{from, bottom, glowPlane, from + 1, bottom, glowPlane, from + 1, top, glowPlane, from, top, glowPlane};
+		quads.add(new Quad(xyz, new float[]{alphaBottom, alphaBottom, alphaTop, alphaTop}));
 	}
 
 	private void edgeLine(boolean alongZ, int plane, int from, double y) {

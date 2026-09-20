@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.3] – 2026-09-20
+
+### Geändert
+- **Der Rahmen läuft über die höhere Kante.** Steht direkt außerhalb der Grenze ein höherer Block (oder ein Stapel), läuft die Linie oben über dessen Kante statt unten an seinem Fuß entlang. Füllt die Wand außerhalb den ganzen Luftraum aus (Tunnel), bleibt die Linie am Boden. Die senkrechten Verbindungsstücke an den Ecken richten sich nach diesen Höhen, der Rahmen bleibt geschlossen.
+- **Durchgehender Schimmer bis zur Oberfläche.** Zusätzlich zum Glow direkt über der Linie füllt ein deutlich schwächerer Schimmer den ganzen Luftraum vom Boden bis zur Decke, unter freiem Himmel bis zur Geländeoberfläche, und blendet darüber weich aus. So bleibt die Border auch an hohen Treppen und in Schächten durchgehend erkennbar.
+
 ## [1.0.2] – 2026-09-20
 
 ### Geändert
