@@ -6,7 +6,7 @@
 	"description": "Client-Erweiterung für das GridLock-Plugin: harter Stopp an der Feld-Border, ohne Zurücksetzen.",
 	"authors": ["Niklas Kronig"],
 	"contact": {"homepage": "https://kronig.net"},
-	"license": "All-Rights-Reserved",
+	"license": "MIT",
 	"icon": "assets/gridlock/icon.png",
 	"environment": "client",
 	"entrypoints": {

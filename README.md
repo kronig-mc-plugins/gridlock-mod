@@ -44,3 +44,7 @@ Mit `-Dgridlock.disable=true` als JVM-Option startet Minecraft mit installiertem
 - Kanal `gridlock:hello` (Client → Server): Protokollversion, oder `-1` zum Abmelden bei einem Fehler
 - Kanal `gridlock:field` (Server → Client): Feld komplett, einzelne Blöcke dazu/weg, Kauf-Fortschritt, Blitz. Format siehe `ModLink` im Plugin.
 - Kollision: Mixin in `Entity.collide`, fügt für den lokalen Spieler Wände für gesperrte Blocksäulen zu den Entity-Kollisionen hinzu.
+
+## Lizenz
+
+MIT – mach damit, was du willst. Siehe [LICENSE](LICENSE).

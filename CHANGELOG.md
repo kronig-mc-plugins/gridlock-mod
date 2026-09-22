@@ -3,6 +3,7 @@
 ## [1.1.1] – 2026-09-22
 
 ### Hinzugefügt
+- **MIT-Lizenz**: Der Code darf frei verwendet, verändert und weitergegeben werden.
 - **GitHub Actions**: Jeder Push baut die Mod-Jar automatisch, jeder Tag `v*` erzeugt ein Release mit Download.
 
 ## [1.1.0] – 2026-09-22
