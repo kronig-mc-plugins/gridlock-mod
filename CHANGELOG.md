@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.1] – 2026-09-22
+
+### Hinzugefügt
+- **GitHub Actions**: Jeder Push baut die Mod-Jar automatisch, jeder Tag `v*` erzeugt ein Release mit Download.
+
 ## [1.1.0] – 2026-09-22
 
 ### Geändert

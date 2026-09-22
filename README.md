@@ -16,6 +16,10 @@ Optionaler **Fabric-Client-Mod** für das [GridLock-Plugin](https://github.com/k
 Der Mod ist freiwillig. Spieler ohne Mod spielen auf demselben Server ganz normal weiter (Server-Border, Stopp durch den Server). Auf Servern ohne das Plugin tut der Mod nichts.
 Der Server prüft weiterhin selbst, ob ein Spieler im Feld ist. Der Mod ist also kein Vorteil und kein Cheat-Risiko.
 
+## Download
+
+Fertige Jars liegen unter [Releases](https://github.com/kronig-mc-plugins/gridlock-mod/releases). Dazu wird die [Fabric API](https://modrinth.com/mod/fabric-api) für 26.3 gebraucht.
+
 ## Installation
 
 1. [Fabric Loader](https://fabricmc.net/use/installer/) für Minecraft 26.3 installieren
