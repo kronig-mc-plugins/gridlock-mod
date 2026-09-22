@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.1.0] – 2026-09-22
+
+### Geändert
+- **Protokoll 2**, passend zu Plugin 1.8.0: Der Server schickt jetzt auch `border.curtain-share` (Stärke des durchgehenden Schimmers) und `border.climb-limit` (Hochziehen der Linie über Blöcke außerhalb). Die Werte gelten damit für alle Spieler gleich, ob mit oder ohne Mod.
+- Passt der Mod nicht zum Server, zeigt der Server im Chat Versionen und einen klickbaren Download-Link.
+
 ## [1.0.3] – 2026-09-20
 
 ### Geändert

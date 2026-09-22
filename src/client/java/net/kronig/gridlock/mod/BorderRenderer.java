@@ -38,8 +38,6 @@ public final class BorderRenderer {
 	/** Blocks scanned below and above the player for air spaces. */
 	private static final int SCAN = 40;
 	private static final int[][] DIRECTIONS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-	/** Strength of the full-height curtain relative to the floor glow. */
-	private static final float CURTAIN_SHARE = 0.45f;
 
 	/** A glow quad: 4 corners (x, y, z) and an alpha per corner. */
 	private record Quad(double[] xyz, float[] alpha) {
@@ -214,7 +212,9 @@ public final class BorderRenderer {
 			}
 			height = Math.max(height, topOf(level, pos));
 		}
-		return height >= gap.top() - 1.0E-6 ? gap.bottom() : height;
+		// Walls higher than the limit (or filling the whole air space) keep the line on the floor.
+		return height >= gap.top() - 1.0E-6 || height - gap.bottom() > FieldState.climbLimit() + 1.0E-6
+				? gap.bottom() : height;
 	}
 
 	/** Joins the lines of different edges meeting at a corner, wherever their air spaces touch. */
@@ -267,7 +267,7 @@ public final class BorderRenderer {
 	 * terrain surface and fades out above it instead of ending in a hard edge.
 	 */
 	private void curtain(boolean alongZ, double glowPlane, int from, Gap gap, double surface) {
-		float strength = FieldState.glowStrength() * CURTAIN_SHARE;
+		float strength = FieldState.glowStrength() * FieldState.curtainShare();
 		if (strength <= 0f) {
 			return;
 		}

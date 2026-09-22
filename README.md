@@ -31,6 +31,10 @@ Der Server prüft weiterhin selbst, ob ein Spieler im Feld ist. Der Mod ist also
 Braucht JDK 25 (Gradle lädt es bei Bedarf automatisch). Die Mod-Datei liegt danach in `build/libs/`.
 Testen: `./gradlew runClient --args="--quickPlayMultiplayer localhost:25565"`
 
+## Testen ohne Mod-Funktion
+
+Mit `-Dgridlock.disable=true` als JVM-Option startet Minecraft mit installiertem, aber stillgelegtem Mod. Praktisch, um die Server-Darstellung zu vergleichen.
+
 ## Technik
 
 - Kanal `gridlock:hello` (Client → Server): Protokollversion, oder `-1` zum Abmelden bei einem Fehler

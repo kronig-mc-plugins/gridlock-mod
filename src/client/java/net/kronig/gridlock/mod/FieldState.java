@@ -13,7 +13,7 @@ import java.util.List;
 /** What the server told us about the field of the current world. Only touched on the client thread. */
 public final class FieldState {
 
-	public static final int PROTOCOL = 1;
+	public static final int PROTOCOL = 2;
 	/** Sent instead of the protocol version when the mod has to switch itself off. */
 	public static final int SIGN_OFF = -1;
 
@@ -24,6 +24,8 @@ public final class FieldState {
 	private static float glowHeight = 2.6f;
 	private static float glowStrength = 0.28f;
 	private static float lineWidth = 0.03f;
+	private static float curtainShare = 0.45f;
+	private static int climbLimit = 3;
 	private static float progress;
 	private static long flashUntil;
 	private static int revision;
@@ -54,6 +56,8 @@ public final class FieldState {
 				glowHeight = in.getInt() / 10f;
 				glowStrength = in.getInt() / 100f;
 				lineWidth = in.getInt() / 100f;
+				curtainShare = in.getInt() / 100f;
+				climbLimit = in.getInt();
 				readColumns(in, true);
 				GridLockMod.LOGGER.debug("Feld empfangen: aktiv={}, Bloecke={}", active, COLUMNS.size());
 			}
@@ -141,6 +145,14 @@ public final class FieldState {
 
 	public static float lineWidth() {
 		return lineWidth;
+	}
+
+	public static float curtainShare() {
+		return curtainShare;
+	}
+
+	public static int climbLimit() {
+		return climbLimit;
 	}
 
 	/** Current border colour (0xRRGGBB): the base colour, shifting towards green while a block is being bought. */
